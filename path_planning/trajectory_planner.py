@@ -19,10 +19,13 @@ class PathPlan(Node):
         self.declare_parameter('map_topic', "default")
         self.declare_parameter('initial_pose_topic', "default")
 
-        self.odom_topic = self.get_parameter('odom_topic').get_parameter_value().string_value
-        self.map_topic = self.get_parameter('map_topic').get_parameter_value().string_value
-        self.initial_pose_topic = self.get_parameter('initial_pose_topic').get_parameter_value().string_value
+        # self.odom_topic = self.get_parameter('odom_topic').get_parameter_value().string_value
+        # self.map_topic = self.get_parameter('map_topic').get_parameter_value().string_value
+        # self.initial_pose_topic = self.get_parameter('initial_pose_topic').get_parameter_value().string_value
 
+        self.odom_topic = "/odom"
+        self.map_topic = "/map"
+        self.initial_pose_topic = "/initialpose"
         self.map = OccupancyGrid()
         self.pos = [0, 0]
 
@@ -58,10 +61,10 @@ class PathPlan(Node):
         self.map = msg
 
     def pose_cb(self, pose):
-        self.pos = [pose.position.x, pose.position.y]
+        self.pos = [pose.pose.pose.position.x, pose.pose.pose.position.y]
 
     def goal_cb(self, msg):
-        self.plan_path(self.pos, [msg.position.x, msg.position.y], self.map)
+        self.plan_path(self.pos, [msg.pose.position.x, msg.pose.position.y], self.map)
 
     def check_line(self, pt1, pt2, thresh, granularity):
         x = np.linspace(pt1[0], pt2[0], num = granularity, endpoint = True)
@@ -73,12 +76,14 @@ class PathPlan(Node):
 
     def plan_path(self, start_point, end_point, map):
         # extract info from map
+        self.get_logger().info(str(map.data))
         occupied = map.data
         w = map.info.width
         h = map.info.height
         ori = map.info.origin.position
         res = map.info.resolution
 
+        self.get_logger().info(str(np.array(occupied).shape))
         # choose number of points to sample and set up parameters
         length = len(occupied)
         num_pts = length // 20
@@ -94,11 +99,11 @@ class PathPlan(Node):
         coords.remove(t)
         coords = np.array(coords)
 
-        # sample from likely unoccupied points proportional to probability of being unoccupied
-        likely = coords[occupied < thresh]
+        # sample from likely unoccupied points
+        likely = coords[-1 < occupied < thresh]
         if len(likely) < num_pts:
             num_pts = len(likely)
-        samples = np.random.choice(likely, num_pts, p = occupied[likely], replace = False)
+        samples = np.random.choice(likely, num_pts, replace = False)
 
         # add grid cell coords of initial and goal pose to graph points
         pts = np.vstack(np.array([s]), samples, np.array([t]))
