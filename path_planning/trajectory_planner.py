@@ -72,44 +72,59 @@ class PathPlan(Node):
         return True
 
     def plan_path(self, start_point, end_point, map):
-
+        # extract info from map
         occupied = map.data
         w = map.info.width
         h = map.info.height
         ori = map.info.origin.position
         res = map.info.resolution
+
+        # choose number of points to sample and set up parameters
         length = len(occupied)
         num_pts = length // 20
-        coords = np.array([[x, y] for y in range(h) for x in range(w)])
+        coords = [[x, y] for y in range(h) for x in range(w)]
         thresh = 0.25
         granularity = 5
         nn_radius = 3*np.sqrt(w*h/num_pts)
 
+        # removes start and end from sample options
+        s = [int(- start_point[0]/res - ori.x), int(start_point[1]/res + ori.y)]
+        t = [int(- end_point[0]/res - ori.x), int(end_point[1]/res + ori.y)]
+        coords.remove(s)
+        coords.remove(t)
+        coords = np.array(coords)
+
+        # sample from likely unoccupied points proportional to probability of being unoccupied
         likely = coords[occupied < thresh]
-        samples = np.random.choice(likely, num_pts, p = occupied[likely])
+        if len(likely) < num_pts:
+            num_pts = len(likely)
+        samples = np.random.choice(likely, num_pts, p = occupied[likely], replace = False)
 
-        s = np.array([[int(- start_point[0]/res - ori.x), int(start_point[1]/res + ori.y)]])
-        t = np.array([[int(- end_point[0]/res - ori.x), int(end_point[1]/res + ori.y)]])
-        pts = np.vstack(s, coords, t)
+        # add grid cell coords of initial and goal pose to graph points
+        pts = np.vstack(np.array([s]), samples, np.array([t]))
+        num_pts = len(pts)
 
-        adj = {i: {} for i in range(1, num_pts + 1)}
-        for i in range(num_pts + 2):
-            for j in range(i + 1, num_pts + 2):
-                if self.check_line(samples[i], samples[j], thresh, granularity):
-                    d = np.linalg.norm(samples[i] - samples[j])
+        # populate adjacency dictionary
+        adj = {i: {} for i in range(num_pts)}
+        for i in range(num_pts):
+            for j in range(i + 1, num_pts):
+                if self.check_line(pts[i], pts[j], thresh, granularity):
+                    d = np.linalg.norm(pts[i] - pts[j])
                     if d < nn_radius:
                         adj[i][j] = d * res
                         adj[j][i] = d * res
 
-        samples[:, 0] = -(samples[:, 0] + ori.x) * res
-        samples[:, 1] = (samples[:, 1] - ori.y) * res
-        samples[0] = start_point
-        samples[-1] = end_point
+        # convert from grid cell to world frame coords
+        pts[:, 0] = -(pts[:, 0] + ori.x) * res
+        pts[:, 1] = (pts[:, 1] - ori.y) * res
+        pts[0] = start_point
+        pts[-1] = end_point
 
+        # djikstra's
         fixed = {}
-        node_dists = {i: np.inf for i in range(num_pts + 2)}
+        node_dists = {i: np.inf for i in range(num_pts)}
         node_dists[0] = 0
-        prev = {i: None for i in range(num_pts + 2)}
+        prev = {i: None for i in range(num_pts)}
         prev[0] = 0
         
         reached = False
@@ -124,16 +139,19 @@ class PathPlan(Node):
             if ind == num_pts + 1:
                 reached = True
 
-        curr = num_pts + 1
+        # reconstruct path
+        curr = num_pts - 1
         path = [curr]
         while curr != 0:
             curr = prev[curr]
             path.append(curr)
         path.reverse()
 
+        # populate trajectory object
         for point in path:
             self.trajectory.addPoint(tuple(samples[point]))
         
+        # publish visual
         self.traj_pub.publish(self.trajectory.toPoseArray())
         self.trajectory.publish_viz()
 
