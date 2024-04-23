@@ -4,6 +4,14 @@ trajectory_planner:
     map_topic: "/map"
     scan_topic: "/scan"
     initial_pose_topic: "/initialpose"
+
+trajectory_planner2:
+  ros__parameters:
+    odom_topic: "/odom"
+    map_topic: "/map"
+    scan_topic: "/scan"
+    initial_pose_topic: "/initialpose"
+
 trajectory_follower:
   ros__parameters:
     odom_topic: "/odom"

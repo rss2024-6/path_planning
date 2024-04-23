@@ -28,7 +28,7 @@ class PathPlan(Node):
     """
 
     def __init__(self):
-        super().__init__("trajectory_planner")
+        super().__init__("trajectory_planner2")
         self.declare_parameter('odom_topic', "default")
         self.declare_parameter('map_topic', "default")
         self.declare_parameter('initial_pose_topic', "default")
