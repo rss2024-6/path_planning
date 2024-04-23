@@ -104,8 +104,8 @@ class PathPlan(Node):
         num_pts = length // 2000
         coords = [(x, y, 1) for y in range(h) for x in range(w)]
         thresh = 0.25
-        granularity = 200
-        nn_radius = np.sqrt(w*h/num_pts)
+        granularity = 20
+        nn_radius = res*np.sqrt(w*h/num_pts)
 
         # removes start and end from sample options  ##TODO: ADD MAP ORIENTATION (see piazza post for transformation)
         T = tfm.quaternion_matrix([ori_th.x, ori_th.y, ori_th.z, ori_th.w])
@@ -134,6 +134,7 @@ class PathPlan(Node):
             num_pts = len(likely)
         sample_inds = np.random.choice(np.arange(len(likely)), num_pts, replace = False)
         samples = likely[sample_inds]
+        self.get_logger().info(str(samples))
 
         # add grid cell coords of initial and goal pose to graph points
         pts = np.vstack((np.array([s]), samples, np.array([t])))
@@ -157,10 +158,7 @@ class PathPlan(Node):
         for i, j in edges:
             if self.check_line(pts[i], pts[j], thresh, granularity):
                 adj[i][j] = d_mtx[i][j]
-
-
-
-        
+        self.get_logger().info(str(adj[0]))
 
         # convert from grid cell to world frame coords
         pts = (T @ pts.T).T
@@ -175,7 +173,7 @@ class PathPlan(Node):
         fixed = {}
         node_dists = {i: np.inf for i in range(num_pts)}
         node_dists[0] = 0
-        prev = {i: None for i in range(num_pts)}
+        prev = {}
         prev[0] = 0
         
         reached = False
@@ -188,10 +186,14 @@ class PathPlan(Node):
                 if neighbor in node_dists:
                     # self.get_logger().info(str((node_dists[neighbor], fixed[ind], adj[ind][neighbor])))
                     # self.get_logger().info(str(adj[ind]))
-                    node_dists[neighbor] = min(node_dists[neighbor], fixed[ind] + adj[ind][neighbor])
-                    prev[neighbor] = ind
+                    if (fixed[ind] + adj[ind][neighbor] < node_dists[neighbor]):
+                        node_dists[neighbor] = fixed[ind] + adj[ind][neighbor]
+                        prev[neighbor] = ind
             if ind == num_pts - 1:
                 reached = True
+        self.get_logger().info(str(nn_radius))
+        self.get_logger().info(str(prev))
+        
 
         # reconstruct path
         curr = num_pts - 1
@@ -200,6 +202,7 @@ class PathPlan(Node):
             curr = prev[curr]
             path.append(curr)
         path.reverse()
+        self.get_logger().info(str(path))
 
         # populate trajectory object
         for point in path:
