@@ -73,6 +73,8 @@ class PurePursuit(Node):
         circle_equation = (position.x - self.final_position[0])**2 + (position.y - self.final_position[1])**2 
 
         if circle_equation < 0.5 ** 2:
+            self.get_logger().info("Reached goal location!")
+
             self.stop = True
             drive = AckermannDriveStamped()
             drive.header.stamp = self.get_clock().now().to_msg()
@@ -84,6 +86,8 @@ class PurePursuit(Node):
             drive.drive.steering_angle_velocity = 0.0
             self.drive_pub.publish(drive)
             return
+
+        #self.get_logger().info("Following path...")
 
         self.publish_circle(position.x, position.y)
         
@@ -153,13 +157,13 @@ class PurePursuit(Node):
 
             else: # no intersections/solutions in range
                 found_intersection = False
-                goalPt = [path[self.last_found_index][0], path[self.last_found_index][1]] # just try to go back to the last point idk??? TODO what to do in this case
+                goalPt = [path[self.last_found_index][0], path[self.last_found_index][1]] # just try to go back to the last point idk???
 
         # publish the current goal point
         self.publish_point(goalPt)
 
         # calculate target angle from car position to the goal point
-        target_angle = math.atan2(goalPt[1]-position.y, goalPt[0]-position.x) #*180/math.pi
+        target_angle = math.atan2(goalPt[1]-position.y, goalPt[0]-position.x)
         self.publish_pose(position.x, position.y, target_angle)
 
         # calculate error from target angle
