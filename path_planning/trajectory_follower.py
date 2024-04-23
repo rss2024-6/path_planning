@@ -33,6 +33,8 @@ class PurePursuit(Node):
         self.speed = 1.  
         self.wheelbase_length = 0.5  
         self.turn_velocity = 0.4
+        self.final_position = (0,0)
+        self.stop = True
 
         self.trajectory = LineTrajectory("/followed_trajectory")
 
@@ -49,20 +51,45 @@ class PurePursuit(Node):
         self.target_angle_pub = self.create_publisher(PoseArray, "/target_pose", 1)
 
     def pose_callback(self, odometry_msg):
-        if not self.initialized_traj:
+        if not self.initialized_traj or self.stop:
+            drive = AckermannDriveStamped()
+            drive.header.stamp = self.get_clock().now().to_msg()
+            drive.header.frame_id = 'map'
+            drive.drive.speed = 0.0
+            drive.drive.acceleration = 0.0
+            drive.drive.jerk = 0.0
+            drive.drive.steering_angle = 0.0
+            drive.drive.steering_angle_velocity = 0.0
+            self.drive_pub.publish(drive)
             return
 
         pose_msg = odometry_msg.pose.pose
         position = pose_msg.position # robot current position
         quaternion = pose_msg.orientation
         theta = euler_from_quaternion([quaternion.x, quaternion.y, quaternion.z, quaternion.w])[2] # robot current heading
+        path = self.trajectory.points
+
+        # check if final_position is near robot, and stop robot if so
+        circle_equation = (position.x - self.final_position[0])**2 + (position.y - self.final_position[1])**2 
+
+        if circle_equation < 0.5 ** 2:
+            self.stop = True
+            drive = AckermannDriveStamped()
+            drive.header.stamp = self.get_clock().now().to_msg()
+            drive.header.frame_id = 'map'
+            drive.drive.speed = 0.0
+            drive.drive.acceleration = 0.0
+            drive.drive.jerk = 0.0
+            drive.drive.steering_angle = 0.0
+            drive.drive.steering_angle_velocity = 0.0
+            self.drive_pub.publish(drive)
+            return
 
         self.publish_circle(position.x, position.y)
         
         starting_index = self.last_found_index
         found_intersection = False
         goalPt = (0,0)
-        path = self.trajectory.points
 
         # use loop to find intersections
         for i in range(starting_index, len(path)-1):
@@ -116,17 +143,17 @@ class PurePursuit(Node):
 
                     # only exit loop if the solution pt found is closer to the next pt in path than the current pos
                     if self.pt_to_pt_distance (goalPt, path[i+1]) < self.pt_to_pt_distance ([position.x, position.y], path[i+1]):
-                        # update lastFoundIndex and exit
-                        self.lastFoundIndex = i
+                        # update last_found_index and exit
+                        self.last_found_index = i
                         break
                     else:
                         # in case for some reason the robot cannot find intersection in the next path segment, but we also don't want it to go backward
-                        self.lastFoundIndex = i+1
+                        self.last_found_index = i+1
                         self.get_logger().info("Intersections out of bounds. Perhaps drifted off the path?")
 
             else: # no intersections/solutions in range
                 found_intersection = False
-                goalPt = [path[self.lastFoundIndex][0], path[self.lastFoundIndex][1]] # just try to go back to the last point idk??? TODO what to do in this case
+                goalPt = [path[self.last_found_index][0], path[self.last_found_index][1]] # just try to go back to the last point idk??? TODO what to do in this case
 
         # publish the current goal point
         self.publish_point(goalPt)
@@ -193,8 +220,8 @@ class PurePursuit(Node):
         marker_msg.color.g = 1.0  # Set the color to green
 
         p = Point()
-        p.x = point[0]
-        p.y = point[1]
+        p.x = point[0] * 1.0
+        p.y = point[1] * 1.0
         marker_msg.points.append(p)
         self.goal_pub.publish(marker_msg)
     
@@ -231,9 +258,11 @@ class PurePursuit(Node):
         self.trajectory.clear()
         self.trajectory.fromPoseArray(msg)
         self.trajectory.publish_viz(duration=0.0)
-        self.lastFoundIndex=0
+        self.last_found_index=0
+        self.final_position = self.trajectory.points[-1]
 
         self.initialized_traj = True
+        self.stop = False
 
     # returns distance btwn 2 points
     def pt_to_pt_distance (self, pt1,pt2):
