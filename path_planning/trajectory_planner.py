@@ -6,7 +6,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray
 from nav_msgs.msg import OccupancyGrid
 from .utils import LineTrajectory
 import numpy as np
-import tf_transformations as tfm
+import tf_transformations
 import scipy
 import skimage.morphology as ski
 import cv2
@@ -31,6 +31,8 @@ class PathPlan(Node):
         self.map_topic = "/map"
         self.initial_pose_topic = "/initialpose"
         self.map = OccupancyGrid()
+
+        # Dijkstra's Variables
         self.pos = [0, 0]
         self.map_data = np.array([0,0])
 
@@ -67,66 +69,53 @@ class PathPlan(Node):
         w = msg.info.width
         h = msg.info.height
         data = np.array(msg.data).reshape((h,w))
-        #blur = a = np.ones([10, 10], dtype = int) 
-        #blurred_data = scipy.signal.convolve2d(data,blur)
-        blurred_data = ski.dilation(data, ski.square(10))
-        cv2.imwrite('/home/racecar/racecar_ws/res_10.png',blurred_data)
+        blurred_data = ski.dilation(data, ski.square(20))
+        cv2.imwrite('/home/racecar/racecar_ws/res_20.png',blurred_data)
         self.get_logger().info('Map Found!')
         self.map_data = list(blurred_data.flatten().astype('int8'))
 
     def pose_cb(self, pose):
-        self.pos = [pose.pose.pose.position.x, pose.pose.pose.position.y, 1]
+        self.pos = [pose.pose.pose.position.x, pose.pose.pose.position.y]
 
     def goal_cb(self, msg):
-        self.plan_path(self.pos, [msg.pose.position.x, msg.pose.position.y, 1], self.map, self.map_data)
-
-    def check_line(self, pt1, pt2, thresh, granularity):
-        w = self.map.info.width
-        x = np.linspace(pt1[0], pt2[0], num = granularity, endpoint = True).astype(int)
-        y = np.linspace(pt1[1], pt2[1], num = granularity, endpoint = True).astype(int)
-        for i in range(len(x)):
-            if self.map.data[y[i]*w+x[i]] > thresh:
-                return False
-        return True
+        self.trajectory.clear()
+        self.plan_path(self.pos, [msg.pose.position.x, msg.pose.position.y], self.map, self.map_data)
 
     def plan_path(self, start_point, end_point, map, mapdata):
         # extract info from map
-        occupied = mapdata
+        occupied = mapdata.copy()
         w = map.info.width
         h = map.info.height
         ori = map.info.origin.position
         res = map.info.resolution
-        ori_th = map.info.origin.orientation
 
         # choose number of points to sample and set up parameters
         length = len(occupied)
         self.get_logger().info('Begin Path Planning Process')
-        num_pts = length // 2000
-        coords = [(x, y, 1) for y in range(h) for x in range(w)]
+        num_pts = length // 250
+        coords = [(x, y) for y in range(h) for x in range(w)]
         thresh = 0.25
-        granularity = 20
+        granularity = 25
         nn_radius = res*np.sqrt(w*h/num_pts)
 
-        # removes start and end from sample options  ##TODO: ADD MAP ORIENTATION (see piazza post for transformation)
-        T = tfm.quaternion_matrix([ori_th.x, ori_th.y, ori_th.z, ori_th.w])
-        T = T[:3,:3]
-        T[:,2] = np.array([ori.x,ori.y,1]).T
-        s = (np.linalg.inv(T) @ np.array(start_point).T).T.astype(int)
-        t = (np.linalg.inv(T) @ np.array(end_point  ).T).T.astype(int)
-        #s = [int(- start_point[0]/res - ori.x), int(start_point[1]/res + ori.y)]
-        #t = [int(- end_point[0]/res - ori.x), int(end_point[1]/res + ori.y)]
+        # removes start and end from sample options
+        start_point = (float(start_point[0]), float(start_point[1]))
+        end_point = (float(end_point[0]), float(end_point[1]))
+
+        s = np.array(self.map_to_pixel(start_point))
+        t = np.array(self.map_to_pixel(end_point))
+
         self.get_logger().info(str((s,t)))
         s_ind = s[1]*w+s[0]
         t_ind = t[1]*w+t[0]
+
         del coords[s_ind]
         del coords[t_ind]
         del occupied[s_ind]
         del occupied[t_ind]
-        # coords.remove(tuple(s))
-        # coords.remove(tuple(t))
-        coords = np.array(coords)
         # yippee! wahoo! yay!
 
+        coords = np.array(coords)
         occupied = np.array(occupied)
         # sample from likely unoccupied points
         likely = coords[np.logical_and(occupied > -1, occupied < thresh)]
@@ -134,40 +123,28 @@ class PathPlan(Node):
             num_pts = len(likely)
         sample_inds = np.random.choice(np.arange(len(likely)), num_pts, replace = False)
         samples = likely[sample_inds]
-        self.get_logger().info(str(samples))
+        # self.get_logger().info(str(samples))
 
         # add grid cell coords of initial and goal pose to graph points
-        pts = np.vstack((np.array([s]), samples, np.array([t])))
-        # GRRRR
+        pts = np.vstack((s, samples, t))
         num_pts = len(pts)
 
+
         # populate adjacency dictionary
-        # adj = {i: {} for i in range(num_pts)}
         self.get_logger().info('wahoo! yippee! yay! pt1')
-        # for i in range(num_pts):
-        #     for j in range(i + 1, num_pts):
-        #         if self.check_line(pts[i], pts[j], thresh, granularity):
-        #             d = np.linalg.norm(pts[i] - pts[j])
-        #             if d < nn_radius:
-        #                 adj[i][j] = d * res
-        #                 adj[j][i] = d * res
-        # take 2
         adj = {i: {} for i in range(num_pts)}
         d_mtx = scipy.spatial.distance_matrix(pts, pts)*res
         edges = np.transpose((d_mtx < nn_radius).nonzero())
         for i, j in edges:
             if self.check_line(pts[i], pts[j], thresh, granularity):
                 adj[i][j] = d_mtx[i][j]
-        self.get_logger().info(str(adj[0]))
+        # self.get_logger().info(str(adj[0]))
 
         # convert from grid cell to world frame coords
-        pts = (T @ pts.T).T
+        for i in range(num_pts):
+            pts[i] = self.pixel_to_map(pts[i])
         pts[0]  = start_point
         pts[-1] = end_point
-        #pts[:, 0] = -(pts[:, 0] + ori.x) * res
-        #pts[:, 1] = (pts[:, 1] - ori.y) * res
-        #pts[0] = start_point
-        #pts[-1] = end_point
 
         # djikstra's
         fixed = {}
@@ -184,17 +161,14 @@ class PathPlan(Node):
             del node_dists[ind]
             for neighbor in adj[ind]:
                 if neighbor in node_dists:
-                    # self.get_logger().info(str((node_dists[neighbor], fixed[ind], adj[ind][neighbor])))
-                    # self.get_logger().info(str(adj[ind]))
                     if (fixed[ind] + adj[ind][neighbor] < node_dists[neighbor]):
                         node_dists[neighbor] = fixed[ind] + adj[ind][neighbor]
                         prev[neighbor] = ind
             if ind == num_pts - 1:
                 reached = True
-        self.get_logger().info(str(nn_radius))
-        self.get_logger().info(str(prev))
+        # self.get_logger().info(str(nn_radius))
+        # self.get_logger().info(str(prev))
         
-
         # reconstruct path
         curr = num_pts - 1
         path = [curr]
@@ -206,12 +180,77 @@ class PathPlan(Node):
 
         # populate trajectory object
         for point in path:
-            self.trajectory.addPoint(tuple(pts[point]))
+            self.trajectory.addPoint(tuple(pts[point].astype(float)))
         
         # publish visual
         self.get_logger().info('wahoo! yippee! yay! pt3')
         self.traj_pub.publish(self.trajectory.toPoseArray())
         self.trajectory.publish_viz()
+
+
+
+    def check_line(self, pt1, pt2, thresh, granularity):
+        w = self.map.info.width
+        x = np.linspace(pt1[0], pt2[0], num = granularity, endpoint = True).astype(int)
+        y = np.linspace(pt1[1], pt2[1], num = granularity, endpoint = True).astype(int)
+        for i in range(len(x)):
+            if self.map.data[y[i]*w+x[i]] > thresh:
+                return False
+        return True
+
+    def pixel_to_map(self, position):
+        scaled_x = position[0] * self.map.info.resolution
+        scaled_y = position[1] * self.map.info.resolution
+
+        pose = self.map.info.origin
+
+        # Extract the translation and rotation from map
+        translation = np.array([pose.position.x, pose.position.y, pose.position.z]).T
+        rotation = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+
+        # Convert the quaternion to a rotation matrix
+        T = tf_transformations.quaternion_matrix(rotation)
+        T[:3, 3] = translation
+
+        # Create a 4x1 homogeneous matrix for the point
+        point_homogeneous = np.array([scaled_x, scaled_y, 0, 1]).T
+
+        # Apply the rotation and translation
+        transformed_point = np.dot(T, point_homogeneous)
+
+        # Extract the x, y, z coordinates (ignore the homogeneous coordinate)
+        x_transformed, y_transformed, _ = transformed_point[:3]
+        return np.array([x_transformed, y_transformed])
+        
+    def map_to_pixel(self, position):
+        x = position[0]
+        y = position[1]
+
+        pose = self.map.info.origin
+
+        # Extract the translation and rotation from map
+        translation = np.array([pose.position.x, pose.position.y, pose.position.z]).T
+        rotation = [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+
+        # Convert the quaternion to a rotation matrix
+        T = tf_transformations.quaternion_matrix(rotation)
+        T[:3, 3] = translation
+
+        # Create a 4x1 homogeneous matrix for the point
+        point_homogeneous = np.array([x, y, 0, 1]).T
+
+        # Apply the rotation and translation
+        transformed_point = np.dot(np.linalg.inv(T), point_homogeneous)
+
+        # Extract the x, y, z coordinates (ignore the homogeneous coordinate)
+        x_transformed, y_transformed, _ = transformed_point[:3]
+
+        # Scale coordinates to pixel space
+        scaled_x = x_transformed / self.map.info.resolution
+        scaled_y = y_transformed / self.map.info.resolution
+
+        return (int(scaled_x), int(scaled_y))
+
 
 def main(args=None):
     rclpy.init(args=args)
