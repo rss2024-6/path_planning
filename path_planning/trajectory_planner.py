@@ -23,13 +23,10 @@ class PathPlan(Node):
         self.declare_parameter('map_topic', "default")
         self.declare_parameter('initial_pose_topic', "default")
 
-        # self.odom_topic = self.get_parameter('odom_topic').get_parameter_value().string_value
-        # self.map_topic = self.get_parameter('map_topic').get_parameter_value().string_value
-        # self.initial_pose_topic = self.get_parameter('initial_pose_topic').get_parameter_value().string_value
+        self.odom_topic = self.get_parameter('odom_topic').get_parameter_value().string_value
+        self.map_topic = self.get_parameter('map_topic').get_parameter_value().string_value
+        self.initial_pose_topic = self.get_parameter('initial_pose_topic').get_parameter_value().string_value
 
-        self.odom_topic = "/odom"
-        self.map_topic = "/map"
-        self.initial_pose_topic = "/initialpose"
         self.map = OccupancyGrid()
 
         # Dijkstra's Variables
@@ -69,8 +66,8 @@ class PathPlan(Node):
         w = msg.info.width
         h = msg.info.height
         data = np.array(msg.data).reshape((h,w))
-        blurred_data = ski.dilation(data, ski.square(20))
-        cv2.imwrite('/home/racecar/racecar_ws/res_20.png',blurred_data)
+        blurred_data = ski.dilation(data, ski.square(15))
+        cv2.imwrite('/home/racecar/racecar_ws/res_15.png',blurred_data)
         self.get_logger().info('Map Found!')
         self.map_data = list(blurred_data.flatten().astype('int8'))
 
@@ -92,10 +89,9 @@ class PathPlan(Node):
         # choose number of points to sample and set up parameters
         length = len(occupied)
         self.get_logger().info('Begin Path Planning Process')
-        num_pts = length // 250
+        num_pts = length // 500
         coords = [(x, y) for y in range(h) for x in range(w)]
-        thresh = 0.25
-        granularity = 25
+        granularity = 20
         nn_radius = res*np.sqrt(w*h/num_pts)
 
         # removes start and end from sample options
@@ -118,7 +114,7 @@ class PathPlan(Node):
         coords = np.array(coords)
         occupied = np.array(occupied)
         # sample from likely unoccupied points
-        likely = coords[np.logical_and(occupied > -1, occupied < thresh)]
+        likely = coords[occupied == 0]
         if len(likely) < num_pts:
             num_pts = len(likely)
         sample_inds = np.random.choice(np.arange(len(likely)), num_pts, replace = False)
@@ -136,7 +132,7 @@ class PathPlan(Node):
         d_mtx = scipy.spatial.distance_matrix(pts, pts)*res
         edges = np.transpose((d_mtx < nn_radius).nonzero())
         for i, j in edges:
-            if self.check_line(pts[i], pts[j], thresh, granularity):
+            if self.check_line(pts[i], pts[j], granularity):
                 adj[i][j] = d_mtx[i][j]
         # self.get_logger().info(str(adj[0]))
 
@@ -178,10 +174,20 @@ class PathPlan(Node):
         path.reverse()
         self.get_logger().info(str(path))
 
+        # check to shorten path
+        #path_orig_len = len(path.copy())
+        #for k in range(path_orig_len):
+        #    for i in range(len(path)-2):
+        #        if self.check_line(pts[path[i]], pts[path[i+2]], granularity*k):
+        #            self.get_logger().info('removed %s' % path[i])
+        #            path[i+1] = float('inf')
+        #    path = list(filter(lambda pt: pt != float('inf'), path))
+
         # populate trajectory object
         for point in path:
             self.trajectory.addPoint(tuple(pts[point].astype(float)))
         
+
         # publish visual
         self.get_logger().info('wahoo! yippee! yay! pt3')
         self.traj_pub.publish(self.trajectory.toPoseArray())
@@ -189,12 +195,14 @@ class PathPlan(Node):
 
 
 
-    def check_line(self, pt1, pt2, thresh, granularity):
+    def check_line(self, pt1, pt2, granularity):
         w = self.map.info.width
         x = np.linspace(pt1[0], pt2[0], num = granularity, endpoint = True).astype(int)
         y = np.linspace(pt1[1], pt2[1], num = granularity, endpoint = True).astype(int)
+        if self.map_data[pt1[1]*w+pt1[0]] != 0 or self.map_data[pt1[1]*w+pt1[0]] != 0:
+            return False
         for i in range(len(x)):
-            if self.map.data[y[i]*w+x[i]] > thresh:
+            if self.map_data[y[i]*w+x[i]] != 0:
                 return False
         return True
 
