@@ -42,6 +42,7 @@ class PathPlan(Node):
 
         # RRT* Params
         self.debug = False
+        self.visualize_tree = True
         self.iterations = 1000
         self.goal_sample_rate = 0.1
         self.step_length = .1
@@ -178,12 +179,9 @@ class PathPlan(Node):
             if self.is_near_goal(new_node):
                 return self.generate_final_course(len(self.node_list) - 1)
             
-            if self.debug: self.publish_tree_markers(self.node_list)
+            if self.visualize_tree: self.publish_tree_markers(self.node_list)
             if self.debug: self.get_logger().info('Iteration: %d' % i)
-            # print("Iteration",i)
-            # if self.debug: time.sleep(.1)
-        
-        print("No path found")
+            if self.debug: time.sleep(.1)
             
         return None
 
