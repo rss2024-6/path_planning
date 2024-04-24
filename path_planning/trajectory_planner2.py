@@ -43,7 +43,7 @@ class PathPlan(Node):
         # RRT* Params
         self.debug = False
         self.visualize_tree = True
-        self.iterations = 1000
+        self.iterations = 100000
         self.goal_sample_rate = 0.1
         self.step_length = .1
         self.search_radius = 0.5

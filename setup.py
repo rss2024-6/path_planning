@@ -33,6 +33,7 @@ setup(
             'trajectory_loader = path_planning.trajectory_loader:main',
             'trajectory_planner = path_planning.trajectory_planner:main',
             'trajectory_planner2 = path_planning.trajectory_planner2:main',
+            'trajectory_planner3 = path_planning.trajectory_planner3:main',
             'trajectory_follower = path_planning.trajectory_follower:main'
         ],
     },

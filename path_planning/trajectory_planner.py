@@ -13,7 +13,9 @@ import cv2
 
 
 class PathPlan(Node):
-    """ Listens for goal pose published by RViz and uses it to plan a path from
+    """ 
+    Djikstras Path Planning Algorithm
+    Listens for goal pose published by RViz and uses it to plan a path from
     current car pose.
     """
 
