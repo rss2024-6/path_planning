@@ -187,6 +187,7 @@ class PurePursuit(Node):
         drive.drive.steering_angle = steering_wheel_angle
         drive.drive.steering_angle_velocity = self.turn_velocity
         self.drive_pub.publish(drive)
+        self.get_logger().info("Following path...")
     
     def publish_pose(self, x, y, theta):
         msg = PoseArray()
