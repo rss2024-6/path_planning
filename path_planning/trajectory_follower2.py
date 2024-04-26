@@ -11,6 +11,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
+from std_msgs.msg import Float32
 
 from .utils import LineTrajectory
 
@@ -59,14 +60,16 @@ class PurePursuit(Node):
         
         self.path_pub = self.create_publisher(Marker, "/path_plan", 1)
 
+        self.dist_to_path_pub = self.create_publisher(Float32, "/dist_to_path", 1)
+
         self.laser_scan = LaserScan()
         self.laserx = np.zeros(1)
         self.lasery = np.zeros(1)
 
         self.relative_x = 1.
         self.relative_y = 0.
-        self.min_velocity = 0.9
-        self.max_velocity = 1.0
+        self.min_velocity = -1.0
+        self.max_velocity = 2.0
         self.current_velocity = 0.
         self.Num_points_look_ahead = 7
         self.last_solution = np.ones(2*self.Num_points_look_ahead)*0.1
@@ -83,6 +86,44 @@ class PurePursuit(Node):
         self.current_robot_x = 0
         self.current_robot_y = 0
         self.current_robot_theta = 0
+
+    # parameters are all tuples that represent points 
+    # p1 and p2 are the endpoints of the current path segment
+    def evaluate(self, current_pos, p1, p2):
+        #  d=np.cross(p2-p1,p3-p1)/norm(p2-p1)
+        return np.cross(p2-p1,current_pos-p1)/np.linalg.norm(p2-p1)
+    
+    def publish_path_error(self):
+        #find two closest points to robot
+        point_indexes, distances = self.find_closest_points(self.traj_xy, (self.current_robot_x, self.current_robot_y))
+        #evaluate func
+        if np.shape(point_indexes)[0] == 2:
+            p1 = self.traj_xy[point_indexes[0]]
+            p2 = self.traj_xy[point_indexes[1]]
+            current_pos = (self.current_robot_x, self.current_robot_y)
+
+            current_dist = self.evaluate(current_pos, p1, p2)
+            
+            #publish
+            msg = Float32()
+            msg.data = current_dist
+            self.dist_to_path_pub.publish(msg)
+        else:
+            self.get_logger().info("wrong shape")
+
+
+
+    def find_closest_points(self, points, test_point):
+        # Compute Euclidean distance between test point and each point in the array
+        distances = np.linalg.norm(points - test_point, axis=1)
+        
+        # Sort the distances and get indices of the two closest points
+        closest_indices = np.argsort(distances)[:2]
+        
+        # Get the minimum distances
+        min_distances = distances[closest_indices]
+        
+        return closest_indices, min_distances
 
     def store_laser_scan(self, laser_scan):
         self.laser_ranges = np.array(laser_scan.ranges)
@@ -114,6 +155,7 @@ class PurePursuit(Node):
         # self.get_logger().info(f"running pose callback {str(self.relative_x), self.relative_y}")
 
         self.relative_cone_callback()
+        self.publish_path_error()
 
     def global_to_local(self, points_global, x, y, theta):
         # Translate points to the origin of the local frame
@@ -257,18 +299,6 @@ class PurePursuit(Node):
             state_list[:,i] = current_state
 
         return state_list
-    
-    def find_closest_point(self, points, test_point):
-        # Compute Euclidean distance between test point and each point in the array
-        distances = np.linalg.norm(points - test_point, axis=1)
-        
-        # Find the index of the point with the minimum distance
-        closest_index = np.argmin(distances)
-        
-        # Get the minimum distance
-        min_distance = distances[closest_index]
-    
-        return closest_index, min_distance
 
     
     def cost_function(self, states, target_state, turn_angles, accelerations):

@@ -23,3 +23,8 @@ trajectory_follower:
   ros__parameters:
     odom_topic: "/odom"
     drive_topic: "/drive"
+
+trajectory_follower2:
+  ros__parameters:
+    odom_topic: "/odom"
+    drive_topic: "/drive"
