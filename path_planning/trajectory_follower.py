@@ -188,6 +188,12 @@ class PurePursuit(Node):
         drive.drive.steering_angle_velocity = self.turn_velocity
         self.drive_pub.publish(drive)
         self.get_logger().info("Following path...")
+
+    # parameters are all tuples that represent points 
+    # p1 and p2 are the endpoints of the current path segment
+    def evaluate(current_pos, p1, p2):
+        #  d=np.cross(p2-p1,p3-p1)/norm(p2-p1)
+        return np.cross(p2-p1,current_pos-p1)/norm(p2-p1)
     
     def publish_pose(self, x, y, theta):
         msg = PoseArray()
