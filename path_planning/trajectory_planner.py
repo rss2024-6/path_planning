@@ -34,6 +34,7 @@ class PathPlan(Node):
         # Dijkstra's Variables
         self.pos = [0, 0]
         self.map_data = np.array([0,0])
+        self.D_LONG = False
 
         self.map_sub = self.create_subscription(
             OccupancyGrid,
@@ -63,6 +64,7 @@ class PathPlan(Node):
 
         self.trajectory = LineTrajectory(node=self, viz_namespace="/planned_trajectory")
 
+
     def map_cb(self, msg):
         self.map = msg
         w = msg.info.width
@@ -74,10 +76,12 @@ class PathPlan(Node):
         self.map_data = list(blurred_data.flatten().astype('int8'))
 
     def pose_cb(self, pose):
+        self.get_logger().info('Established Start')
         self.pos = [pose.pose.pose.position.x, pose.pose.pose.position.y]
 
     def goal_cb(self, msg):
         self.trajectory.clear()
+        self.get_logger().info('Established Goal')
         self.plan_path(self.pos, [msg.pose.position.x, msg.pose.position.y], self.map, self.map_data)
 
     def plan_path(self, start_point, end_point, map, mapdata):
@@ -88,13 +92,17 @@ class PathPlan(Node):
         ori = map.info.origin.position
         res = map.info.resolution
 
+        self.get_logger().info('Begin Path Planning Process')
+        t_start = self.get_clock().now().nanoseconds / 1e9        # BEGIN ALGORITHM
+
         # choose number of points to sample and set up parameters
         length = len(occupied)
-        self.get_logger().info('Begin Path Planning Process')
-        num_pts = length // 500
+        num_pts = length // 225
+        #num_pts = length // 50
         coords = [(x, y) for y in range(h) for x in range(w)]
         granularity = 20
-        nn_radius = res*np.sqrt(w*h/num_pts)
+        #granularity = 5
+        nn_radius = np.sqrt(w*h/(length if self.D_LONG else num_pts))
 
         # removes start and end from sample options
         start_point = (float(start_point[0]), float(start_point[1]))
@@ -116,11 +124,14 @@ class PathPlan(Node):
         coords = np.array(coords)
         occupied = np.array(occupied)
         # sample from likely unoccupied points
-        likely = coords[occupied == 0]
-        if len(likely) < num_pts:
-            num_pts = len(likely)
-        sample_inds = np.random.choice(np.arange(len(likely)), num_pts, replace = False)
-        samples = likely[sample_inds]
+        if self.D_LONG:
+            samples = coords[occupied == 0]
+        else:
+            likely = coords[occupied == 0]
+            if len(likely) < num_pts:
+                num_pts = len(likely)
+            sample_inds = np.random.choice(np.arange(len(likely)), num_pts, replace = False)
+            samples = likely[sample_inds]
         # self.get_logger().info(str(samples))
 
         # add grid cell coords of initial and goal pose to graph points
@@ -131,18 +142,12 @@ class PathPlan(Node):
         # populate adjacency dictionary
         self.get_logger().info('wahoo! yippee! yay! pt1')
         adj = {i: {} for i in range(num_pts)}
-        d_mtx = scipy.spatial.distance_matrix(pts, pts)*res
+        d_mtx = scipy.spatial.distance_matrix(pts, pts)
         edges = np.transpose((d_mtx < nn_radius).nonzero())
         for i, j in edges:
             if self.check_line(pts[i], pts[j], granularity):
                 adj[i][j] = d_mtx[i][j]
         # self.get_logger().info(str(adj[0]))
-
-        # convert from grid cell to world frame coords
-        for i in range(num_pts):
-            pts[i] = self.pixel_to_map(pts[i])
-        pts[0]  = start_point
-        pts[-1] = end_point
 
         # djikstra's
         fixed = {}
@@ -187,13 +192,25 @@ class PathPlan(Node):
 
         # populate trajectory object
         for point in path:
-            self.trajectory.addPoint(tuple(pts[point].astype(float)))
+            if point == path[0]:
+                traj_pt = start_point
+            elif point == path[-1]:
+                traj_pt = end_point
+            else:
+                traj_pt = (tuple((self.pixel_to_map(pts[point])).astype(float)))
+            self.trajectory.addPoint(traj_pt)
         
+        t_end = self.get_clock().now().nanoseconds / 1e9        # END ALGORITHM
+        Q_MET = (self.trajectory.distances[-1])/(t_end-t_start)/(t_end-t_start)
 
         # publish visual
         self.get_logger().info('wahoo! yippee! yay! pt3')
         self.traj_pub.publish(self.trajectory.toPoseArray())
         self.trajectory.publish_viz()
+
+        self.get_logger().info('Path Distance: %s' % str(self.trajectory.distances[-1]))
+        self.get_logger().info('Runtime: %s' % str(t_end-t_start))
+        self.get_logger().info('Efficiency: %s' % str(Q_MET))
 
 
 

@@ -39,6 +39,7 @@ class PathPlan(Node):
 
         self.map = OccupancyGrid()
         self.pos = [0, 0]
+        self.map_data = np.array([0,0])
 
         # RRT* Params
         self.debug = False
@@ -98,13 +99,13 @@ class PathPlan(Node):
         data = np.array(msg.data).reshape((h,w))
         #blur = a = np.ones([10, 10], dtype = int) 
         #blurred_data = scipy.signal.convolve2d(data,blur)
-        blurred_data = ski.dilation(data, ski.square(10))
-        cv2.imwrite('/home/racecar/racecar_ws/res_10.png',blurred_data)
+        blurred_data = ski.dilation(data, ski.square(5))
+        #cv2.imwrite('/home/racecar/racecar_ws/res_10.png',blurred_data)
         self.get_logger().info('Map Found!')
-        # self.map_data = list(blurred_data.flatten().astype('int8'))
+        self.map_data = list(blurred_data.flatten().astype('int8'))
 
     def pose_cb(self, pose):
-        self.occupied = self.map.data
+        self.occupied = self.map_data
         self.width = self.map.info.width
         self.height = self.map.info.height
 
@@ -120,7 +121,8 @@ class PathPlan(Node):
         self.plan_path(self.pos, [msg.pose.position.x, msg.pose.position.y], self.map)
 
     def plan_path(self, start_point, end_point, map):
-        self.occupied = map.data
+        t_start = self.get_clock().now().nanoseconds / 1e9        # BEGIN ALGORITHM
+        self.occupied = self.map_data.copy()
         self.width = map.info.width
         self.height = map.info.height
         ori = map.info.origin.position
@@ -141,9 +143,17 @@ class PathPlan(Node):
             #add path to trajectory
             for point in path:
                 self.trajectory.addPoint(point)
-            
+
+            t_end = self.get_clock().now().nanoseconds / 1e9        # END ALGORITHM
+            Q_MET = (self.trajectory.distances[-1])/(t_end-t_start)
+
             self.traj_pub.publish(self.trajectory.toPoseArray())
             self.trajectory.publish_viz()
+
+            self.get_logger().info('Path Distance: %s' % str(self.trajectory.distances[-1]))
+            self.get_logger().info('Runtime: %s' % str(t_end-t_start))
+            self.get_logger().info('Efficiency: %s' % str(Q_MET))
+
         else:
             self.get_logger().info('No path found')
 

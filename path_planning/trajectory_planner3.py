@@ -116,6 +116,8 @@ class PathPlan(Node):
         # print("downsampled map",self.downsampled_map)
         # self.get_logger().info("start %s" % start_point)
         # self.get_logger().info("end %s" % end_point)
+        t_start = self.get_clock().now().nanoseconds / 1e9        # BEGIN ALGORITHM
+
         start = self.map_to_pixel(start_point)
         end = self.map_to_pixel(end_point)
         
@@ -126,9 +128,17 @@ class PathPlan(Node):
             #add path to trajectory
             for point in path:
                 self.trajectory.addPoint(self.pixel_to_map(point[0], point[1]))
-            
+
+            t_end = self.get_clock().now().nanoseconds / 1e9        # END ALGORITHM
+            Q_MET = (self.trajectory.distances[-1])/(t_end-t_start)
+
             self.traj_pub.publish(self.trajectory.toPoseArray())
             self.trajectory.publish_viz()
+
+            self.get_logger().info('Path Distance: %s' % str(self.trajectory.distances[-1]))
+            self.get_logger().info('Runtime: %s' % str(t_end-t_start))
+            self.get_logger().info('Efficiency: %s' % str(Q_MET))
+
         else:
             self.get_logger().info('No path found')
 
