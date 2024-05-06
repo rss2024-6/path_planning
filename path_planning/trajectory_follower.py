@@ -1,6 +1,7 @@
 import rclpy
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
+from std_msgs.msg import Float32
 from nav_msgs.msg import Odometry
 import math
 import numpy as np
@@ -49,6 +50,9 @@ class PurePursuit(Node):
         self.goal_pub = self.create_publisher(Marker, "/goal_point", 1)
         self.circle_pub = self.create_publisher(Marker, "/circle", 1)
         self.target_angle_pub = self.create_publisher(PoseArray, "/target_pose", 1)
+        self.dist_to_path_pub = self.create_publisher(Float32, "/dist_to_path", 1)
+        self.error_data = []
+
 
     def pose_callback(self, odometry_msg):
         if not self.initialized_traj or self.stop:
@@ -85,9 +89,10 @@ class PurePursuit(Node):
             drive.drive.steering_angle = 0.0
             drive.drive.steering_angle_velocity = 0.0
             self.drive_pub.publish(drive)
+            self.get_logger().info(f"{self.error_data}")
+
             return
 
-        #self.get_logger().info("Following path...")
 
         self.publish_circle(position.x, position.y)
         
@@ -161,6 +166,9 @@ class PurePursuit(Node):
 
         # publish the current goal point
         self.publish_point(goalPt)
+        if self.last_found_index < len(path)-1:
+            self.publish_path_error([position.x, position.y], [path[self.last_found_index][0], path[self.last_found_index][1]], 
+                                    [path[self.last_found_index+1][0], path[self.last_found_index+1][1]])
 
         # calculate target angle from car position to the goal point
         target_angle = math.atan2(goalPt[1]-position.y, goalPt[0]-position.x)
@@ -187,7 +195,28 @@ class PurePursuit(Node):
         drive.drive.steering_angle = steering_wheel_angle
         drive.drive.steering_angle_velocity = self.turn_velocity
         self.drive_pub.publish(drive)
+        #self.get_logger().info("Following path...")
+
+    # parameters are all tuples that represent points 
+    # p1 and p2 are the endpoints of the current path segment
+    def evaluate(self, current_pos, p1, p2):
+        #  d=np.cross(p2-p1,p3-p1)/norm(p2-p1)
+        current_pos = np.array(current_pos)
+        p1 = np.array(p1)
+        p2 = np.array(p2)
+        return np.cross(p2-p1,current_pos-p1)/np.linalg.norm(p2-p1)
     
+    def publish_path_error(self, current_pos, p1, p2):
+        current_dist = self.evaluate(current_pos, p1, p2)
+
+        #self.error_data.append((self.get_clock().now().seconds(),  current_dist) )
+        #current_time = self.get_clock().now().to_sec()
+        #self.error_data.append(current_dist )
+        msg = Float32()
+        msg.data = current_dist
+        self.dist_to_path_pub.publish(msg)
+
+
     def publish_pose(self, x, y, theta):
         msg = PoseArray()
         msg.header.frame_id = 'map'
