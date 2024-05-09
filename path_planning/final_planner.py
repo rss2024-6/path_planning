@@ -4,7 +4,7 @@ from rclpy.node import Node
 assert rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Point, PointStamped, Pose, Quaternion
 from nav_msgs.msg import OccupancyGrid
-from visualization_msgs.msg import Marker, MarkerArray
+from visualization_msgs.msg import Marker
 from std_msgs.msg import ColorRGBA
 from .utils import LineTrajectory
 import numpy as np
@@ -51,7 +51,7 @@ class PathPlan(Node):
         self.real_time_viz = False
         self.lane_offset = 0.2
         self.neighbor_options = "cardinal" # "knight" or "cardinal"
-        self.grid_viz = "lanes-dirs" #none or "full", "full-dirs", "lanes", "lanes-dirs"
+        self.grid_viz = "full" #none or "full", "full-dirs", "lanes", "lanes-dirs"
 
         # A* Variables
         self.ROW = None
@@ -910,3 +910,4 @@ def main(args=None):
     planner = PathPlan()
     rclpy.spin(planner)
     rclpy.shutdown()
+
