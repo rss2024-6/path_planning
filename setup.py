@@ -35,7 +35,8 @@ setup(
             'trajectory_planner2 = path_planning.trajectory_planner2:main',
             'trajectory_planner3 = path_planning.trajectory_planner3:main',
             'trajectory_follower = path_planning.trajectory_follower:main',
-            'trajectory_follower2 = path_planning.trajectory_follower2:main'
+            'trajectory_follower2 = path_planning.trajectory_follower2:main',
+            'final_planner = path_planning.final_planner:main',
         ],
     },
 )

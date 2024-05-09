@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="path_planning" exec="final_planner" name="final_planner" output="screen">
+        <param from="$(find-pkg-share path_planning)/config/sim/sim_config.yaml"/>
+    </node>
+</launch>
