@@ -5,6 +5,13 @@ trajectory_planner:
     scan_topic: "/scan"
     initial_pose_topic: "/initialpose"
 
+final_planner:
+  ros__parameters:
+    odom_topic: "/vesc/odom"
+    map_topic: "/map"
+    scan_topic: "/scan"
+    initial_pose_topic: "/initialpose"
+
 trajectory_planner2:
   ros__parameters:
     odom_topic: "/vesc/odom"
@@ -14,6 +21,11 @@ trajectory_planner2:
 
 
 trajectory_follower:
+  ros__parameters:
+    odom_topic: "/vesc/odom"
+    drive_topic: "/vesc/high_level/input/nav_0"
+
+trajectory_follower_uturn:
   ros__parameters:
     odom_topic: "/vesc/odom"
     drive_topic: "/vesc/high_level/input/nav_0"

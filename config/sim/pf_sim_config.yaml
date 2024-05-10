@@ -8,3 +8,9 @@ trajectory_follower:
   ros__parameters:
     odom_topic: "/pf/pose/odom"
     drive_topic: "/drive"
+
+trajectory_follower_uturn:
+  ros__parameters:
+    odom_topic: "/pf/pose/odom"
+    drive_topic: "/drive"
+

@@ -1,0 +1,8 @@
+<launch>
+    <node pkg="path_planning" exec="final_planner" name="final_planner" output="screen">
+        <param from="$(find-pkg-share path_planning)/config/sim/sim_config.yaml"/>
+    </node>
+    <node pkg="path_planning" exec="trajectory_follower_uturn" name="trajectory_follower_uturn">
+        <param from="$(find-pkg-share path_planning)/config/sim/sim_config.yaml"/>
+    </node>
+</launch>
