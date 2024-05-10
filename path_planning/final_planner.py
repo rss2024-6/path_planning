@@ -5,7 +5,8 @@ assert rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Point, PointStamped, Pose, Quaternion
 from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import Marker
-from std_msgs.msg import ColorRGBA
+from std_msgs.msg import ColorRGBA, Int32MultiArray
+# from custom_msgs.msg import Checkpoints
 from .utils import LineTrajectory
 import numpy as np
 import tf_transformations
@@ -110,7 +111,9 @@ class PathPlan(Node):
         #Trajectory
         self.trajectory = LineTrajectory(node=self, viz_namespace="/planned_trajectory")
         self.checkpoints = []
-        self.checkpoints_pub = self.create_publisher(PoseArray, "/checkpoints", 10)
+        self.checkpoints_idxs = []
+        self.checkpoints_pub = self.create_publisher(PoseArray, "/checkpoints/poses", 10)
+        self.checkpoints_idx_pub = self.create_publisher(Int32MultiArray, "/checkpoints/indexes", 10)
 
         # Load lane points
         with open('src/path_planning/lanes/full-lane.traj', 'r') as file:
@@ -172,6 +175,7 @@ class PathPlan(Node):
         self.pos = [pose.pose.pose.position.x, pose.pose.pose.position.y]
         self.current_start_point = self.pos
         self.checkpoints = []
+        self.checkpoints_idxs = []
         self.visualize_checkpoints()
 
     def goal_cb(self, msg):
@@ -185,13 +189,24 @@ class PathPlan(Node):
 
         self.plan_path(self.current_start_point, [msg.pose.position.x, msg.pose.position.y])
 
+        self.checkpoints_idxs.append(len(self.trajectory.points)-1)
+
         pose_array = PoseArray()
         pose_array.header.stamp = self.get_clock().now().to_msg()
         pose_array.header.frame_id = "map"
         pose_array.poses = self.checkpoints
-        self.checkpoints_pub.publish(pose_array)
-        self.traj_pub.publish(self.trajectory.toPoseArray())
 
+        # checkpoints = Checkpoints()
+        # checkpoints.poses = pose_array
+        # checkpoints.indexes = self.checkpoints_idxs
+
+        # self.checkpoints_pub.publish(checkpoints)
+        msg = Int32MultiArray()
+        msg.data = self.checkpoints_idxs
+        self.get_logger().info(f"checkpoints: {self.checkpoints_idxs}")
+        self.checkpoints_pub.publish(pose_array)
+        self.checkpoints_idx_pub.publish(msg)
+        self.traj_pub.publish(self.trajectory.toPoseArray())
         self.trajectory.publish_viz()
 
     
@@ -212,6 +227,8 @@ class PathPlan(Node):
 
         point = [msg.point.x, msg.point.y]
         self.plan_path(self.current_start_point, point)
+
+        self.checkpoints_idxs.append(len(self.trajectory.points)-1)
         self.current_start_point = point
 
         # self.checkpoints.append(pose)
