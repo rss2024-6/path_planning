@@ -1,7 +1,7 @@
 import rclpy
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Int32MultiArray
 from nav_msgs.msg import Odometry
 import math
 import numpy as np
@@ -64,7 +64,14 @@ class PurePursuit(Node):
         
         self.path_pub = self.create_publisher(Marker, "/path_plan", 1)
 
-        self.dist_to_path_pub = self.create_publisher(Float32, "/dist_to_path", 1)
+        self.checkpoints_sub = self.create_subscription(PoseArray, "/checkpoints", self.checkpoints_callback, 1)
+
+        self.subscription = self.create_subscription(
+            Int32MultiArray,
+            "/checkpoints/indexes",
+            self.checkpoint_indices_callback,
+            10
+        )
 
         self.laser_scan = LaserScan()
         self.laserx = np.zeros(1)
@@ -95,7 +102,13 @@ class PurePursuit(Node):
         self.switch_to_drive_back_thresh = 0.25
         self.switch_to_drive_frwrd_thresh = 0.5
 
-        
+        self.checkpoint_indexes = []
+        self.checkpoint_poses = []
+
+        timer_period = 1
+        self.timer = self.create_timer(timer_period, self.timer_callback)
+        self.timer_seconds_remaining = 3
+
         
     def pose_callback(self, odometry_msg):
         #self.get_logger().info("running pose callback")
@@ -115,12 +128,30 @@ class PurePursuit(Node):
 
         self.recompute_optimal_controls()
 
+    def timer_callback(self):
+        self.timer_seconds_remaining = max(0, self.timer_seconds_remaining - 1)
+        #self.get_logger().info(f"time on timer: {self.timer_seconds_remaining}")
+
+    def checkpoint_indices_callback(self, msg):
+        self.checkpoint_indexes = list(msg.data)
+        self.get_logger().info(f"checkpoint indexes: {self.checkpoint_indexes}")
     
     def recompute_optimal_controls(self):
+        if len(self.checkpoint_indexes) == 0:
+            return
+
         index_closest_point = 0
         closest_dist = 99999
         found_point_in_lookahead = False
-        for i in range(self.trajxy_robot_frame.shape[0] - 1, 0, -1):
+
+        # self.checkpoint_indexes = []
+        # for pose in self.checkpoint_poses:
+        #     distances = np.abs(self.traj_xy[:,0] - pose.position.x) + np.abs(self.traj_xy[:,1] - pose.position.y)
+        #     self.checkpoint_indexes.append(np.argmin(distances))
+
+        self.get_logger().info(f"checkpoint ind: {self.checkpoint_indexes}")
+
+        for i in range(self.checkpoint_indexes[0], 0, -1):
             #for finding the closest point
             if abs(self.trajxy_robot_frame[i, 0]) + abs(self.trajxy_robot_frame[i, 1]) < closest_dist:
                 index_closest_point = i
@@ -186,8 +217,16 @@ class PurePursuit(Node):
             #steering_wheel_angle = math.atan(2*self.wheelbase_length*math.sin(angle_error)/self.lookahead)
             drive_cmd.drive.steering_angle = -self.relative_y
 
+
+
         #if close to goal point:
         if index_closest_point == self.trajxy_robot_frame.shape[0] - 1:
+            drive_cmd.drive.speed = 0.0
+        elif index_closest_point in self.checkpoint_indexes:
+            self.timer_seconds_remaining = 5
+            self.checkpoint_indexes.pop(0)
+
+        if self.timer_seconds_remaining > 0:
             drive_cmd.drive.speed = 0.0
 
         self.drive_pub.publish(drive_cmd)
@@ -234,6 +273,10 @@ class PurePursuit(Node):
         #self.get_logger().info(f"running traj {str(self.traj_xy)}")
 
         self.initialized_traj = True
+
+    def checkpoints_callback(self, msg):
+        self.checkpoint_indexes = []
+        self.checkpoint_poses = msg.poses
 
     def global_to_local(self, points_global, x, y, theta):
         # Translate points to the origin of the local frame

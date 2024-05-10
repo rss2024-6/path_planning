@@ -1,5 +1,5 @@
 <launch>
-    <node pkg="safety_contoller" name="safety_controller" exec="safety_controller" output="screen">
+    <node pkg="safety_controller" name="safety_controller" exec="safety_controller" output="screen">
     </node>
     <node pkg="path_planning" exec="trajectory_planner" name="trajectory_planner" output="screen">
         <param from="$(find-pkg-share path_planning)/config/real/config.yaml"/>
