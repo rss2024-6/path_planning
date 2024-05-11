@@ -12,8 +12,6 @@ from rclpy.node import Node
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 from visualization_msgs.msg import Marker
 
-from scipy.spatial import distance
-
 
 from .utils import LineTrajectory
 
@@ -73,34 +71,22 @@ class PurePursuit(Node):
             10
         )
 
+        self.stop_sign_sub = self.create_subscription(Float32, "stop_area", self.stop_sign_callback, 10)
+
         self.laser_scan = LaserScan()
         self.laserx = np.zeros(1)
         self.lasery = np.zeros(1)
 
         self.relative_x = 1.
         self.relative_y = 0.
-        self.min_velocity = -1.0
-        self.max_velocity = 2.0
-        self.current_velocity = 0.
-        self.Num_points_look_ahead = 7
-        self.last_solution = np.ones(2*self.Num_points_look_ahead)*0.1
-        self.L_car_wheelbase = 0.5
-        self.time_step = 0.3
-        self.optimal_controls = np.zeros(2*self.Num_points_look_ahead)
-        self.optimal_states = np.zeros([4,self.Num_points_look_ahead])
-        self.max_steer = 0.34
-        self.max_accel = 2
-        self.min_dist_waypoint_to_lidar = 0.5
-        self.safety_stop_waypoint_dist = 0.25
-        self.last_path_compute_time = 0
 
         self.current_robot_x = 0
         self.current_robot_y = 0
         self.current_robot_theta = 0
         self.driving_forward = True
 
-        self.switch_to_drive_back_thresh = 0.25
-        self.switch_to_drive_frwrd_thresh = 0.5
+        self.switch_to_drive_back_thresh = 0.5
+        self.switch_to_drive_frwrd_thresh = 0.75
 
         self.checkpoint_indexes = []
         self.checkpoint_poses = []
@@ -108,6 +94,8 @@ class PurePursuit(Node):
         timer_period = 1
         self.timer = self.create_timer(timer_period, self.timer_callback)
         self.timer_seconds_remaining = 3
+        self.timer_look_for_stop_signs = 0
+        self.stop_sign_size_threshold = 100
 
         
     def pose_callback(self, odometry_msg):
@@ -128,13 +116,22 @@ class PurePursuit(Node):
 
         self.recompute_optimal_controls()
 
+    def stop_sign_callback(self, msg):
+        if self.timer_look_for_stop_signs == 0:
+            stopSignArea = msg.data
+            if stopSignArea > self.stop_sign_size_threshold:
+                self.timer_seconds_remaining = 3
+                self.timer_look_for_stop_signs = 8
+
+
     def timer_callback(self):
         self.timer_seconds_remaining = max(0, self.timer_seconds_remaining - 1)
+        self.timer_look_for_stop_signs = max(0, self.timer_look_for_stop_signs - 1)
         #self.get_logger().info(f"time on timer: {self.timer_seconds_remaining}")
 
     def checkpoint_indices_callback(self, msg):
         self.checkpoint_indexes = list(msg.data)
-        self.get_logger().info(f"checkpoint indexes: {self.checkpoint_indexes}")
+        #self.get_logger().info(f"checkpoint indexes: {self.checkpoint_indexes}")
     
     def recompute_optimal_controls(self):
         if len(self.checkpoint_indexes) == 0:
@@ -149,7 +146,7 @@ class PurePursuit(Node):
         #     distances = np.abs(self.traj_xy[:,0] - pose.position.x) + np.abs(self.traj_xy[:,1] - pose.position.y)
         #     self.checkpoint_indexes.append(np.argmin(distances))
 
-        self.get_logger().info(f"checkpoint ind: {self.checkpoint_indexes}")
+        #self.get_logger().info(f"checkpoint ind: {self.checkpoint_indexes}")
 
         for i in range(self.checkpoint_indexes[0], 0, -1):
             #for finding the closest point
@@ -166,44 +163,8 @@ class PurePursuit(Node):
         
         if not found_point_in_lookahead and self.trajxy_robot_frame.shape[0] > 0:
             self.relative_x, self.relative_y = self.trajxy_robot_frame[index_closest_point]
-                
-        #display the projected path
-        #x = self.optimal_states[0,:]
-        #y = self.optimal_states[1,:]
-
-        # #check if point is too close to a laser scan
-        # set1 = np.column_stack((self.relative_x, self.relative_y))
-
-        # set2 = np.column_stack((self.laserx, self.lasery))
-
-        # # Calculate the distance matrix.
-        # distance_matrix = distance.cdist(set1, set2)
-        # # Find the minimum distance.
-        # min_distance = np.min(np.abs(distance_matrix))
-        
-
-        # #if point is too close to laser scan check to see if moving the point up down left or right would improve it
-        # if min_distance < 0.4:
-        #     directions = np.array([[0, 1],   # Up
-        #                [0, -1],   # Down
-        #                [-1, 0],   # Left
-        #                [1, 0],     # Right
-        #                [0,0]])*0.2
-        #     test_points = directions + set1
-        #     distance_matrix = distance.cdist(test_points, set2)
-        #     # Find the maximum distance and its index
-        #     max_distance_index = np.argmax(distance_matrix)
-        #     max_distance = distance_matrix.flatten()[max_distance_index]
-
-        #     # Convert the index to row and column indices
-        #     max_row_index, max_col_index = np.unravel_index(max_distance_index, distance_matrix.shape)
-
-        #     # Retrieve the test point that resulted in the maximum distance
-        #     self.relative_x, self.relative_y = test_points[max_row_index]
-            
-
-
-            #find the offset that would improve this distance
+                            
+   #find the offset that would improve this distance
             
 
         drive_cmd = AckermannDriveStamped()
@@ -220,9 +181,9 @@ class PurePursuit(Node):
 
 
         #if close to goal point:
-        if index_closest_point == self.trajxy_robot_frame.shape[0] - 1:
+        if index_closest_point == self.trajxy_robot_frame.shape[0] - 1 and closest_dist < 0.3:
             drive_cmd.drive.speed = 0.0
-        elif index_closest_point in self.checkpoint_indexes:
+        elif index_closest_point in self.checkpoint_indexes and closest_dist < 0.3:
             self.timer_seconds_remaining = 5
             self.checkpoint_indexes.pop(0)
 
